@@ -48,9 +48,9 @@ def point_callback(data):
     point = np.array([0,0,0])
     point = arr2[center_y_pixel*640 + center_x_pixel]
     print point
-    coordinates.x = point[1] #horizontal
-    coordinates.y = point[2] #distance
-    coordinates.z = point[0] #vertical
+    coordinates.x = point[2] #distance
+    coordinates.y = point[0] #horizontal
+    coordinates.z = point[1] #vertical
     rospy.sleep(0.001)
 
 
