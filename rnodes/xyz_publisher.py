@@ -93,9 +93,9 @@ def point_callback(data):
 
     print point4
     
-    coordinates.x = point4[1] #horizontal
-    coordinates.y = point4[2] #distance
-    coordinates.z = point4[0] #vertical
+    coordinates.x = point4[2] #distance
+    coordinates.y = point4[0] #horizontal
+    coordinates.z = point4[1] #vertical
     rospy.sleep(0.001)
 
 
