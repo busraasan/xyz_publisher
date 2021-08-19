@@ -1,6 +1,8 @@
 #!/usr/bin/env python2
 # coding:utf-8
 
+#Depth camera must be started using: roslaunch realsense2_camera rs_camera.launch align_depth:=true, rosbag böyle alınmamış
+
 import rospy
 from std_msgs.msg import String
 from sensor_msgs.msg import PointCloud2
@@ -18,152 +20,165 @@ from sensor_msgs.msg import CameraInfo as cameraInfo
 import math
 import tf
 
-bounding_box = np.array((0,0,0,0))
-arr2 = np.zeros((640,480))
-point =  np.array((0,0,0))
-point2 =  np.array((0,0,0))
-point3 =  np.array((0,0,0))
-point4 =  np.array((0,0,0))
-coordinates = Coordinate()
-camera_info = np.array((0,0,0,0))
-ppx = 0.0
-ppy = 0.0
-fx = 0.0
-fy = 0.0
-found = False
+class xyz_publisher:
+    def __init__(self):
 
-def calculate_diagonal(x1,y1,x2,y2):
-    if( (x1-x2) != 0):
-        m = (y1-y2)/(x1-x2)
-    else:
-        m = 0
-    b = y1 - m*x1
-    return m, b
+        rospy.init_node('depth_image_listener', anonymous=False)
 
-def bounding_boxes_callback(data):
-    
-    bounding_box[0] = data.bounding_boxes[0].xmin 
-    bounding_box[1] = data.bounding_boxes[0].ymin
-    bounding_box[2] = data.bounding_boxes[0].xmax 
-    bounding_box[3] = data.bounding_boxes[0].ymax
+        self.bounding_box = np.array((0,0,0,0))
+        #variables for camera parameters
+        self.camera_info = np.array((0,0,0,0))
+        self.ppx = 0.0
+        self.ppy = 0.0
+        self.fx = 0.0
+        self.fy = 0.0
+        #found is used to check whether probe exists
+        self.found = False
+        self.coordinates = Coordinate()
+        self.arr2 = np.zeros((640,480))
+        #used for finding the two diagonals of the bounding box
+        self.positive_diagonal = np.array((0,0,0))
+        self.negative_diagonal = np.array((0,0,0))
+        self.point = np.array((0.0,0.0,0.0))
 
-def point_callback(data):
-    xmin = bounding_box[0]
-    xmax = bounding_box[2]
-    ymin = bounding_box[1]
-    ymax = bounding_box[3]
+        self.center_x_pixel = 0.0
+        self.center_y_pixel = 0.0
+        self.xmin = 0
+        self.xmax = 0
+        self.ymin = 0
+        self.ymax = 0
 
-
-    bridge = CvBridge()
-    depth_image = bridge.imgmsg_to_cv2(data, desired_encoding="passthrough")
-    arr2 = np.array(depth_image, dtype=np.float32)
-    '''im = Image.fromarray(depth_array)
-    im = im.convert("L")'''
-    '''pc.header       = data.header
-    pc.height       = data.height
-    pc.width        = data.width
-    pc.fields       = data.fields
-    pc.is_bigendian = data.is_bigendian
-    pc.point_step   = data.point_step
-    pc.row_step     = data.row_step
-    pc.data         = data.data
-
-    arr = ros_numpy.point_cloud2.pointcloud2_to_array(pc)
-    arr2 = ros_numpy.point_cloud2.get_xyz_points(arr)'''
-    center_x_pixel = bounding_box[2] - (bounding_box[2] - bounding_box[0])/2
-    center_y_pixel = bounding_box[3] - (bounding_box[3] - bounding_box[1])/2
-
-    m1, b1 = calculate_diagonal(xmin, ymin, xmax, ymax)
-    counter = 0
-    point2 =  np.array((0,0,0))
-    for i in range(xmin, xmax):
-        y_value = i*m1 + b1
-        if(y_value == 480):
-            y_value -= 1
-        point2[0] += i
-        point2[1] += y_value
-        point2[2] += arr2[y_value][i]
-        counter+=1
-
-    if(counter != 0):
-        point2 = np.divide(point2, counter)
-
-    m2, b2 = calculate_diagonal(xmin, ymax, xmax, ymin)
-    counter = 0
-    point3 =  np.array((0,0,0))
-    for i in range(xmin, xmax):
-        y_value = i*m2 + b2
-        if(y_value == 480):
-            y_value -= 1
-        point3[0] += i
-        point3[1] += y_value
-        point3[2] += arr2[y_value][i]
-        counter+=1
-
-    if(counter != 0):
-        point3 = np.divide(point3, counter)
-
-    if(point2[2] < point3[2]):
-        point4 = point2
-    else:
-        point4 = point3
-
-    #point4 = convert_depth_to_phys_coord_using_realsense(point4[0], point4[1], point4[2], cameraInfo)
-    
-    point[0] = (point4[0] - camera_info[0])*point4[2] / camera_info[2]
-    point[1] = (point4[1] - camera_info[1])*point4[2] / camera_info[3]
-    point[2] = point4[2]
-
-    coordinates.x = point[2] #distance
-    coordinates.y = point[0] #horizontal
-    coordinates.z = point[1]*(-1) #vertical
-
-    '''coordinates.x = point4[2] #distance
-    coordinates.y = point4[0] #horizontal
-    coordinates.z = point4[1] #vertical'''
-    rospy.sleep(0.001)
-
-def camera_callback(cameraData):
-    camera_info[0] = cameraData.K[2] #ppx
-    camera_info[1] = cameraData.K[5] #ppy
-    camera_info[2] = cameraData.K[0] #fx
-    camera_info[3] = cameraData.K[4] #fy
-
-def tf_broadcaster(coordinates):
-    br = tf.TransformBroadcaster()
-    br.sendTransform(( coordinates.x/1000, coordinates.y/1000, coordinates.z/1000), (0.0,0.0,0.0,1.0), rospy.Time(), 'probe', '/camera_link')
-
-def object_callback(data):
-    global found
-    if(data.count > 0):
-        found = True
-    else:
-        found = False
-
-def get_pointcloud():
-    
-    rospy.init_node('depth_image_listener')
-    #rospy.Subscriber("/camera/depth_registered/points", PointCloud2, point_callback)
-    rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", msg_Image, point_callback)
-    rospy.Subscriber("/darknet_ros/bounding_boxes", BoundingBoxes, bounding_boxes_callback)
-    rospy.Subscriber("/camera/aligned_depth_to_color/camera_info", cameraInfo, camera_callback)
-    rospy.Subscriber("darknet_ros/found_object", ObjectCount, object_callback)
-
-    pub = rospy.Publisher('/basan/xyz_coordinates', Coordinate, queue_size=1)
-    rate = rospy.Rate(10) #10Hz
-    global found
-    while not rospy.is_shutdown():
+        self.depth_sub = rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", msg_Image, self.point_callback)
+        self.camera_sub = rospy.Subscriber("/camera/aligned_depth_to_color/camera_info", cameraInfo, self.camera_callback)
+        self.bounding_box_sub = rospy.Subscriber("/darknet_ros/bounding_boxes", BoundingBoxes, self.bounding_boxes_callback)
+        self.object_count_sub = rospy.Subscriber("darknet_ros/found_object", ObjectCount, self.object_callback)
+        self.pub = rospy.Publisher('/probe/xyz_coordinates', Coordinate, queue_size=1)
             
-            if(found == True):
+        self.rate = rospy.Rate(10) #10Hz
+
+        #count = 0
+        #find_count = 0
+        while not rospy.is_shutdown():
+            #count+=1
+
+            '''rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", msg_Image, self.point_callback)
+            rospy.Subscriber("/camera/aligned_depth_to_color/camera_info", cameraInfo, self.camera_callback)
+            rospy.Subscriber("/darknet_ros/bounding_boxes", BoundingBoxes, self.bounding_boxes_callback)
+            rospy.Subscriber("darknet_ros/found_object", ObjectCount, self.object_callback)'''
+                
+            if(self.found == True):
+                #find_count += 1
                 print "probe detected"
-                tf_broadcaster(coordinates)
-                pub.publish(coordinates)
+                self.tf_broadcaster(self.coordinates)
+                self.pub.publish(self.coordinates)
             else:
                 print "no probe"
-            rate.sleep()
-    
-    
-    rospy.spin()
+            
+            #print (float(find_count) / float(count))*100
+            #print count
+            self.rate.sleep()  
+
+
+    def find_center(self):
+
+        center_x_pixel = self.bounding_box[2] - (self.bounding_box[2] - self.bounding_box[0])/2
+        center_y_pixel = self.bounding_box[3] - (self.bounding_box[3] - self.bounding_box[1])/2
+
+
+    def calculate_diagonal(self, x1,y1,x2,y2):
+
+        #find the slope of a linear function
+        if( (x1-x2) != 0):
+            m = (y1-y2)/(x1-x2)
+        else:
+            m = 0
+        b = y1 - m*x1
+        return m, b
+
+    def calculate_diagonal_average(self, a,b,c,d): 
+        #sum all the points on the diagonal and take the average depth
+
+        m1, b1 = self.calculate_diagonal(a,b,c,d)
+        counter = 0
+        pointt =  np.array((0.0,0.0,0.0))
+        for i in range(self.xmin, self.xmax):
+            y_value = i*m1 + b1
+            if(y_value == 480):
+                y_value -= 1
+            pointt[0] += i
+            pointt[1] += y_value
+            pointt[2] += self.arr2[y_value][i]
+            counter+=1
+
+        if(counter != 0):
+            pointt = np.divide(pointt, counter)
+
+        return pointt
+
+
+    def bounding_boxes_callback(self, data):
+
+        self.xmin = data.bounding_boxes[0].xmin 
+        self.ymin = data.bounding_boxes[0].ymin
+        self.xmax = data.bounding_boxes[0].xmax 
+        self.ymax = data.bounding_boxes[0].ymax
+
+    def point_callback(self, data):
+
+        #function to take pixel coordinates and depth of the probe and convert it to a real world xyz point
+
+        bridge = CvBridge()
+        depth_image = bridge.imgmsg_to_cv2(data, desired_encoding="passthrough")
+        self.arr2 = np.array(depth_image, dtype=np.float32)
+
+        self.negative_diagonal = self.calculate_diagonal_average(self.xmin, self.ymin, self.xmax, self.ymax)
+        self.positive_diagonal = self.calculate_diagonal_average(self.xmin, self.ymax, self.xmax, self.ymin)
+
+        #Take the diagonal which has the smaller average depth value, the closer one.
+        if(self.negative_diagonal[2] < self.positive_diagonal[2]):
+            self.point = self.negative_diagonal
+        else:
+            self.point = self.positive_diagonal
+        
+        #Use camera intrinsincs to convert pixel coordinates to real world xyz
+        self.point[0] = (self.point[0] - self.camera_info[0])*self.point[2] / self.camera_info[2]
+        self.point[1] = (self.point[1] - self.camera_info[1])*self.point[2] / self.camera_info[3]
+        self.point[2] = self.point[2]
+
+        self.coordinates.x = self.point[2] #distance
+        self.coordinates.y = self.point[0] #horizontal
+        self.coordinates.z = self.point[1]*(-1) #vertical
+
+        rospy.sleep(0.001)
+
+
+    def camera_callback(self, cameraData):
+
+        #Set intrinsinc values of the camera
+
+        self.camera_info[0] = cameraData.K[2] #ppx
+        self.camera_info[1] = cameraData.K[5] #ppy
+        self.camera_info[2] = cameraData.K[0] #fx
+        self.camera_info[3] = cameraData.K[4] #fy
+
+    def object_callback(self, data):
+
+        #Set whether probe exists
+
+        if(data.count > 0):
+            self.found = True
+        else:
+            self.found = False
+
+    def tf_broadcaster(self, coordinates):
+        br = tf.TransformBroadcaster()
+        br.sendTransform(( coordinates.x/1000, coordinates.y/1000, coordinates.z/1000), (0.0,0.0,0.0,1.0), rospy.Time(), 'probe', '/camera_link')
+
 
 if __name__ == '__main__':
-    get_pointcloud()
+
+    try:
+        xyz_publisher()
+    except rospy.ROSInterruptException:
+        rospy.loginfo("Exception thrown")
+    
