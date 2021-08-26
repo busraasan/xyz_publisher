@@ -19,7 +19,6 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import CameraInfo as cameraInfo
 import math
 import tf
-import pyrealsense2 as rs
 
 class xyz_publisher:
     def __init__(self):
@@ -66,18 +65,12 @@ class xyz_publisher:
             rospy.Subscriber("/camera/aligned_depth_to_color/camera_info", cameraInfo, self.camera_callback)
             rospy.Subscriber("/darknet_ros/bounding_boxes", BoundingBoxes, self.bounding_boxes_callback)
             rospy.Subscriber("darknet_ros/found_object", ObjectCount, self.object_callback)'''
-            distance_avg = 0
+                
             if(self.found == True):
                 #find_count += 1
                 print "probe detected"
-                for i in range(0,11):
-                    distance_avg += self.coordinates.x
-                    if(i == 10):
-                        distance_avg /= 10
-                        self.coordinates.x = distance_avg
-                        self.tf_broadcaster(self.coordinates)
-                        self.pub.publish(self.coordinates)
-                
+                self.tf_broadcaster(self.coordinates)
+                self.pub.publish(self.coordinates)
             else:
                 print "no probe"
             
@@ -137,7 +130,6 @@ class xyz_publisher:
         bridge = CvBridge()
         depth_image = bridge.imgmsg_to_cv2(data, desired_encoding="passthrough")
         self.arr2 = np.array(depth_image, dtype=np.float32)
-        #self.arr2 = data
 
         self.negative_diagonal = self.calculate_diagonal_average(self.xmin, self.ymin, self.xmax, self.ymax)
         self.positive_diagonal = self.calculate_diagonal_average(self.xmin, self.ymax, self.xmax, self.ymin)
